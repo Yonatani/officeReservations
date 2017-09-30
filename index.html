@@ -134,101 +134,223 @@
         objArray[i - 1] = {};
         for (var k = 0; k < array[0].length && k < array[i].length; k++) {
           var key = array[0][k];
+
           objArray[i - 1][key] = array[i][k]
         }
+        objArray[i - 1].id = i-1;
       }
-      const tempDate = new Date("2013-01")
+      const date = new Date("2017-01")
       const sortedArrayByDate = _.sortBy(objArray, reservation=>reservation[" Start Day"]);
-      const shortTermsReservations = _.map(sortedArrayByDate, (reservation) => {
-        console.log('reservation',reservation)
-        let startDate = moment(reservation[" Start Day"])
-        let endDate = moment(reservation[" End Day"])
-        if(endDate.isValid()){
-          return {
-            Capacity: reservation.Capacity,
-            startDate,
-            endDate,
-            revenueByMonth: serializeShortTermReservations(startDate, endDate, reservation[" Monthly Price"])
-          }
-        } else {
-
-        }
-      })
-      consoleRevenueByTempDate(sortedArrayByDate, tempDate)
-      var a = moment('1-3-2012', 'DD-MM-YYYY');
-      var b = moment('3-3-2012', 'DD-MM-YYYY');
-      var days = b.diff(a, 'days') + 1;
-      console.log('shortTermsReservations',shortTermsReservations);
-
-
-
-
+      console.log('sortedArrayByDate',sortedArrayByDate);
+      const revenueAndCapacityDBs = generateRevenueAndCapacityDBs(sortedArrayByDate);
+      consoleRevenueByDate(revenueAndCapacityDBs, date)
       var json = JSON.stringify(sortedArrayByDate);
       var str = json.replace(/},/g, "},\r\n");
-
       return str;
     }
 
-    function getMonthRevenue(monthlyPrice, daysInMonth, reseredDays) {
-      console.log('reseredDays',reseredDays);
-      return monthlyPrice/daysInMonth*(reseredDays);
+    function generateRevenueAndCapacityDBs(sortedArrayByDate){
+      const shortTermsReservations = _.map(sortedArrayByDate, (reservation) => {
+        let startDate = moment(reservation[" Start Day"])
+        let endDate = reservation[" End Day"].length > 0 ? moment(reservation[" End Day"]) : null
+        return serializeShortTermReservation(reservation.id, reservation["Capacity"], reservation[" Monthly Price"], startDate, endDate)
+      })
+      let olderReservationsSum = 0;
+      let shortTermResDB = {};
+      let longTermResDB = {};
+      for(let i =0 ; i< shortTermsReservations.length; i++) {
+        currResObj = shortTermsReservations[i];
+        if(currResObj && currResObj.type === "shortTerm"){
+          for (var year in currResObj) {
+            if(_.has(shortTermResDB, year)) {
+              for (var month in currResObj[year]) {
+                if(_.has(shortTermResDB[year], month)) {
+                  shortTermResDB[year][month] = {
+                    revenue: shortTermResDB[year][month].revenue + currResObj[year][month],
+                    capacity: shortTermResDB[year][month].capacity + currResObj.capacity
+                  };
+                } else {
+                  shortTermResDB[year][month] = {
+                    revenue: 0,
+                    capacity: 0
+                  };
+                  shortTermResDB[year][month] = {
+                    revenue: shortTermResDB[year][month].revenue + currResObj[year][month],
+                    capacity: shortTermResDB[year][month].capacity + currResObj.capacity
+                  };
+                }
+              }
+            } else {
+              if(year === "id" || year === "capacity" || year === "type"){
+                continue;
+              }
+              shortTermResDB[year] = {}
+              for (var month in currResObj[year]) {
+                shortTermResDB[year][month] = {
+                  revenue: 0,
+                  capacity: 0
+                };
+                shortTermResDB[year][month] = {
+                  revenue: shortTermResDB[year][month].revenue + currResObj[year][month],
+                  capacity: shortTermResDB[year][month].capacity + currResObj.capacity
+                };
+              }
+            }
+          }
+        } else {
+          const year = currResObj.startDate.format('YYYY');
+          const month = currResObj.startDate.format('MM');
+          const prevMonth = month === 1 ? 12 : month-1;
+          const prevYear = month === 1 ? year-1 : year
+          if(_.has(longTermResDB, year)) {
+              if(_.has(longTermResDB[year], month)) {
+                longTermResDB[year][month] = {
+                  currentMonthRevenue: longTermResDB[year][month].currentMonthRevenue + currResObj.firstMonthRev,
+                  capacity: longTermResDB[year][month].capacity + currResObj.capacity
+                };
+                if(month === 12){
+                  year = year+1;
+                  month = 1
+                }
+                longTermResDB[year][month].oldersReservationsRevenue = olderReservationsSum + currResObj.monthlyPrice
+              } else {
+                longTermResDB[year][month] = {
+                  currentMonthRevenue: currResObj.firstMonthRev + olderReservationsSum,
+                  capacity: currResObj.capacity,
+                  oldersReservationsRevenue: 0
+                };
+                if(month === 12){
+                  year = year+1;
+                  month = 1
+                }
+                longTermResDB[year][month].oldersReservationsRevenue = olderReservationsSum + currResObj.monthlyPrice
+            }
+          } else {
+              longTermResDB[year] = {}
+              longTermResDB[year][month] = {
+                currentMonthRevenue: currResObj.firstMonthRev + olderReservationsSum,
+                capacity: currResObj.capacity,
+                oldersReservationsRevenue: 0,
+              };
+              if(month === 12){
+                year = year+1;
+                month = 1
+              }
+              longTermResDB[year][month].oldersReservationsRevenue = olderReservationsSum + currResObj.monthlyPrice
+            }
+            olderReservationsSum = olderReservationsSum + currResObj.monthlyPrice
+        }
+    }
+    return {shortTermResDB, longTermResDB};
     }
 
-    function serializeShortTermReservations(dateStart = moment('2013-8-31'), dateEnd = moment('2015-3-30'), monthlyPrice = 1) {
+    function getMonthRevenue(monthlyPrice, daysInMonth, reseredDays) {
+      const numberedString = monthlyPrice
+      return monthlyPrice/daysInMonth*reseredDays;
+    }
+
+    function serializeShortTermReservation(reservationId, capacity = 0, monthlyPrice, dateStart = moment('1970-1-1'), dateEnd) {
+      monthlyPrice = Number(monthlyPrice)
       let timeValues = [];
-      let currDate = dateStart;
-      while (dateEnd > currDate) {
+      let currDate = _.cloneDeep(dateStart);
+      let monthsRev = {}
+      if(dateEnd){
+        while (currDate.isSameOrBefore(dateEnd)) {
+          let monthRevenue;
+          if(currDate.diff(dateStart, 'months') === 0 ){
+            monthRevenue = getMonthRevenue(monthlyPrice, currDate.daysInMonth(),currDate.daysInMonth()-dateStart.format('DD')+1)
+          } else if (currDate.diff(dateEnd, 'months') === 0) {
+            monthRevenue = getMonthRevenue(monthlyPrice, currDate.daysInMonth(),dateEnd.format('DD'))
+          } else {
+            //console.log('Number(monthlyPrice)',Number(monthlyPrice));
+            monthRevenue = monthlyPrice
+          }
+          if(_.has(monthsRev, currDate.format('YYYY'))) {
+            monthsRev[currDate.format('YYYY')][currDate.format('MM')] = monthRevenue
+          } else {
+            monthsRev[currDate.format('YYYY')] = {}
+            monthsRev[currDate.format('YYYY')][currDate.format('MM')] = monthRevenue
+          }
+          currDate.add(1,'month');
+        }
+        monthsRev.type = "shortTerm";
+      } else {
         let monthRevenue;
-        if(currDate.isSame(dateStart)){
+        if(currDate.diff(dateStart, 'months') === 0 ){
           monthRevenue = getMonthRevenue(monthlyPrice, currDate.daysInMonth(),currDate.daysInMonth()-dateStart.format('DD')+1)
-        } else if (currDate.isSame(dateEnd)) {
-          monthRevenue = getMonthRevenue(monthlyPrice, currDate.daysInMonth(),currDate.daysInMonth()-dateEnd.format('DD')+1)
         } else {
           monthRevenue = monthlyPrice
         }
-
-
-
-
-         timeValues.push({
-           "year": currDate.format('YYYY'),
-           "month": currDate.format('MM'),
-           "daysInMonth":currDate.daysInMonth(),
-           "monthRevenue": monthRevenue
-      })
-      currDate.add(1,'month');
-    }
-      const chainedYears = _.chain(timeValues).groupBy('year').mapValues( (v) => {
-        console.log('monthhh',v);
-          return _.chain(v).map((v) => {
-
-            return {[v.month]: 100}}
-          ).value();
-      }).value();
-      console.log('timeValues',chainedYears);
-      return chainedYears;
-    }
-
-    function consoleRevenueByTempDate(sortedArrayByDate, tempDate) {
-      let sum = 0;
-      let tempSum = 0;
-      let toMoment = moment(tempDate)
-      for(let i=0; i<sortedArrayByDate.length; i++){
-        if(sortedArrayByDate[i][" Monthly Price"]) { //because i have an undefined on the last row FIX
-          let currStartDate = moment(sortedArrayByDate[i][" Start Day"])
-          let currEndDate = moment(sortedArrayByDate[i][" End Day"])
-          if(toMoment.isAfter(currStartDate) && toMoment.isSameOrBefore(currEndDate)){
-            //get the sum from the short-term reservations data
-            sum+=Number(sortedArrayByDate[i][" Monthly Price"]);
-          } else if (toMoment.isAfter(currStartDate) && currEndDate.isValid()) {
-            //get the sum of permanent reservations
-          }
-          tempSum+=Number(sortedArrayByDate[i][" Monthly Price"]);
-
+        monthsRev = {
+          startDate: dateStart,
+          firstMonthRev: monthRevenue,
+          monthlyPrice: monthlyPrice,
+          capacity: capacity
         }
+        monthsRev.type = "longTerm";
       }
-      console.log('sum',sum)
-      console.log('tempSum',tempSum)
+      monthsRev.id = reservationId;
+      monthsRev.capacity = Number(capacity);
+      return monthsRev;
+    }
+
+    function getLongTermRevenueByDate(longTermReservationDB, month, year) {
+      // CHECK FOR LONG TERM RESERVATIONS REVENUE BY MONTH
+      let clonedYear = _.cloneDeep(year)
+      if(_.has(longTermReservationDB, year)){ // check if DB has this particular year key
+        if(_.has(longTermReservationDB[year], month)){ // check if DB has this particular month key
+          return longTermReservationDB[clonedYear][month]
+        } else {
+          let clonedMonth = month;
+            while (clonedMonth > 0) { // search for the closest month <
+              clonedMonth = clonedMonth < 10 ? "0"+clonedMonth : clonedMonth;
+              if(_.has(longTermReservationDB[clonedYear],[clonedMonth])){
+                return longTermReservationDB[clonedYear][clonedMonth].oldersReservationsRevenue
+              }
+              clonedMonth--
+            }
+            if(clonedMonth === 0) { // search for the closest month in previouse years
+              while(clonedYear > 2012){
+                  if(_.has(longTermReservationDB, clonedYear)){
+                    clonedMonth = _.findLastKey(longTermReservationDB[clonedYear])
+                    return longTermReservationDB[clonedYear][clonedMonth].oldersReservationsRevenue
+                  }
+                  clonedYear--;
+              }
+            }
+        }
+      } else {
+          while(clonedYear > 2012){ // search for the closest month in previouse years
+              if(_.has(longTermReservationDB, clonedYear)){
+                const clonedMonth = _.findLastKey(longTermReservationDB[clonedYear])
+                return longTermReservationDB[clonedYear][clonedMonth].oldersReservationsRevenue
+              }
+              clonedYear--;
+          }
+      }
+    }
+
+    function getShortTermRevenueByDate(shortTermReservationDB, year, month) {
+      if(_.has(shortTermReservationDB, year) && _.has(shortTermReservationDB[year], month)){
+        return shortTermReservationDB[year][month].revenue;
+      } else {
+         return 0;
+      }
+    }
+
+    function consoleRevenueByDate(revenueAndCapacityDBs, date) {
+      let sum = 0;
+      let dateToMoment = moment(date)
+      const month = dateToMoment.format('MM');
+      const year = Number(dateToMoment.format('YYYY'));
+      const shortTermReservationDB = revenueAndCapacityDBs.shortTermResDB;
+      const longTermReservationDB = revenueAndCapacityDBs.longTermResDB;
+      let revenueSum = 0;
+      revenueSum = getLongTermRevenueByDate(longTermReservationDB, month, year);
+      revenueSum += getShortTermRevenueByDate(shortTermReservationDB, year, month);
+      // CHECK FOR SHORT TERM RESERVATIONS REVENUE BY MONTH
+
+      console.log('revenueSum',revenueSum);
     }
 
     $(document).ready(function() {
