@@ -1,3 +1,5 @@
 #heading { font-size: x-large; font-weight: bold; }
-.text {  height: 20px; display: inline-block;}
+#convert { height: 21px}
+.text {  display: inline-block; margin: 0}
+#revenueTitle { margin: 0}
 .small { font-size: small; }

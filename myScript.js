@@ -110,6 +110,7 @@ function generateRevenueAndCapacityDBs(sortedArrayByDate){
         olderReservationsRevenueSum = olderReservationsRevenueSum + currResObj.monthlyPrice; // Add monthlyPrice to older reservations, for total summarize
     }
 })
+
 return {shortTermResDB, longTermResDB};
 }
 
@@ -120,7 +121,6 @@ function getRevenueByDate(revenueAndCapacityDBs, date) {
   const year = Number(dateToMoment.format("YYYY"));
   const shortTermReservationsDB = revenueAndCapacityDBs.shortTermResDB;
   const longTermReservationsDB = revenueAndCapacityDBs.longTermResDB;
-
   const longTemoReservationsDataByDate = getLongTermRevenueByDate(longTermReservationsDB, month, year);
   const shortTemoReservationsDataByDate = getShortTermRevenueByDate(shortTermReservationsDB, month, year);
   // CHECK FOR SHORT TERM RESERVATIONS REVENUE BY MONTH
@@ -182,7 +182,10 @@ function getLongTermRevenueByDate(longTermReservationsDB, month, year) {
   let clonedYear = _.cloneDeep(year);
   if(_.has(longTermReservationsDB, year)){ // Check if DB has this year key record
     if(_.has(longTermReservationsDB[year], month)){ // Check if DB has this month key record
-      return longTermReservationsDB[clonedYear][month]
+      return {
+        revenue: longTermReservationsDB[year][month].currentMonthRevenue,
+        capacity: longTermReservationsDB[year][month].capacity
+      };
     } else {
       let clonedMonth = month;
         while (clonedMonth > 0) { // Search for the closest month <
@@ -256,7 +259,7 @@ function CSVToArray(strData, strDelimiter) {
   let arrData = [[]];
 
   let arrMatches = null;
-
+  let strMatchedValue;
   while (arrMatches = objPattern.exec(strData)) {
     let strMatchedDelimiter = arrMatches[1];
 
@@ -267,10 +270,10 @@ function CSVToArray(strData, strDelimiter) {
 
     if (arrMatches[2]) {
 
-      let strMatchedValue = arrMatches[2].replace(
+      strMatchedValue = arrMatches[2].replace(
         new RegExp("\"\"", "g"), "\"");
     } else {
-      let strMatchedValue = arrMatches[3];
+      strMatchedValue = arrMatches[3];
     }
 
     arrData[arrData.length - 1].push(strMatchedValue);
